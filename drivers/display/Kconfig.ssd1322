@@ -8,3 +8,15 @@ config SSD1322
 	select MIPI_DBI
 	help
 	  Enable driver for SSD1322 display driver.
+
+if SSD1322
+
+config SSD1322_BUFFER_SIZE
+	int "SSD1322 internal buffer size"
+	default 8
+	range 8 61440
+	help
+	  Size of the SSD1322 internal pixel format conversion buffer, in bytes.
+	  Maximum value is the size of the display ram, 480*128=61440.
+
+endif # SSD1322

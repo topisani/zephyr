@@ -11,6 +11,8 @@
 #define SSD1322_ENABLE_RAM_WRITE     0x5C
 #define SSD1322_SET_ROW_ADDR         0x75
 #define SSD1322_SET_REMAP            0xA0
+#define SSD1322_SET_START_LINE       0xA1
+#define SSD1322_SET_DISPLAY_OFFSET   0xA2
 #define SSD1322_BLANKING_ON          0xA4
 #define SSD1322_BLANKING_OFF         0xA6
 #define SSD1322_EXIT_PARTIAL         0xA9

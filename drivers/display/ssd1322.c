@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "zephyr/sys/util.h"
 #define DT_DRV_COMPAT solomon_ssd1322
 
 #include <zephyr/logging/log.h>
@@ -28,10 +29,20 @@ struct ssd1322_config {
 	uint16_t height;
 	uint16_t width;
 	uint16_t column_offset;
+	uint8_t row_offset;
+	uint8_t start_line;
+	uint8_t mux_ratio;
+	bool remap_row_first;
+	bool remap_columns;
+	bool remap_rows;
+	bool remap_nibble;
+	bool remap_com_odd_even_split;
+	bool remap_com_dual;
+	uint8_t segments_per_pixel;
 };
 
-static inline int ssd1322_write_command(const struct device *dev, uint8_t cmd,
-					const uint8_t *buf, size_t len)
+static inline int ssd1322_write_command(const struct device *dev, uint8_t cmd, const uint8_t *buf,
+					size_t len)
 {
 	const struct ssd1322_config *config = dev->config;
 
@@ -47,8 +58,8 @@ static inline int ssd1322_write_data(const struct device *dev, uint8_t *buf, siz
 	mipi_desc.width = len * PIXELS_IN_BYTE;
 	mipi_desc.height = 1;
 	mipi_desc.pitch = mipi_desc.width;
-	return mipi_dbi_write_display(config->mipi_dev, &config->dbi_config, buf,
-				      &mipi_desc, PIXEL_FORMAT_MONO01);
+	return mipi_dbi_write_display(config->mipi_dev, &config->dbi_config, buf, &mipi_desc,
+				      PIXEL_FORMAT_MONO01);
 }
 
 static int ssd1322_blanking_on(const struct device *dev)
@@ -85,12 +96,13 @@ static int ssd1322_write(const struct device *dev, const uint16_t x, const uint1
 	}
 
 	LOG_DBG("x %u, y %u, pitch %u, width %u, height %u, buf_len %u", x, y, desc->pitch,
-			desc->width, desc->height, buf_len);
+		desc->width, desc->height, buf_len);
 
 	uint8_t cmd_data[2];
 
-	cmd_data[0] = config->column_offset + (x >> 2);
-	cmd_data[1] = config->column_offset + (((x + desc->width) >> 2) - 1);
+	cmd_data[0] = config->column_offset + (x >> 2) * config->segments_per_pixel;
+	cmd_data[1] =
+		config->column_offset + ((x + desc->width) >> 2) * config->segments_per_pixel - 1;
 	ret = ssd1322_write_command(dev, SSD1322_SET_COLUMN_ADDR, cmd_data, 2);
 	if (ret < 0) {
 		return ret;
@@ -108,30 +120,39 @@ static int ssd1322_write(const struct device *dev, const uint16_t x, const uint1
 		return ret;
 	}
 
-	uint8_t *buff_ptr = (uint8_t *)buf;
-
 	/*
 	 * Controller uses 4-bit grayscale format, so one pixel is represented by 4 bits.
 	 * Zephyr's display API does not support this format, so I am using 1-bit b/w mode and
 	 * convert each 1-bit pixel to 1111 or 0000.
 	 */
-	for (uint16_t j = 0; j < buf_len; j++) {
-		uint8_t pixel_buff[4] = {0};
+	static uint8_t pixel_buf[CONFIG_SSD1322_BUFFER_SIZE];
 
-		for (uint8_t i = 0; i < 8; ++i) {
-			if (*buff_ptr & (1 << i)) {
-				uint8_t nibble_pos = (i & 1) ? 0 : 4;
+	__ASSERT(CONFIG_SSD1322_BUFFER_SIZE / config->segments_per_pixel / 2 > 0,
+		 "Pixel conversion buffer too small");
 
-				pixel_buff[i >> 1] |= 0x0F << nibble_pos;
-			}
+	const uint8_t *in_buf = buf;
+	int32_t pixel_count = desc->width * desc->height;
+
+	while (pixel_count > 0) {
+		uint16_t in_idx = 0;
+		uint16_t seg_idx = 0;
+		uint8_t color;
+
+		while (in_idx < pixel_count && seg_idx / 2 < sizeof(pixel_buf)) {
+			in_idx = seg_idx / config->segments_per_pixel;
+			color = (in_buf[in_idx / 8] & BIT(in_idx % 8)) ? 0xF : 0;
+			pixel_buf[seg_idx / 2] = (seg_idx % 2 == 0)
+							 ? color
+							 : ((color << 4) | pixel_buf[seg_idx / 2]);
+			seg_idx++;
 		}
-		ret = ssd1322_write_data(dev, pixel_buff, sizeof(pixel_buff));
+		ret = ssd1322_write_data(dev, pixel_buf, seg_idx / 2);
 		if (ret < 0) {
 			return ret;
 		}
-		buff_ptr++;
+		in_buf += in_idx / 8;
+		pixel_count -= in_idx;
 	}
-
 	return 0;
 }
 
@@ -140,8 +161,7 @@ static int ssd1322_set_contrast(const struct device *dev, const uint8_t contrast
 	return ssd1322_write_command(dev, SSD1322_SET_CONTRAST, &contrast, 1);
 }
 
-static void ssd1322_get_capabilities(const struct device *dev,
-				     struct display_capabilities *caps)
+static void ssd1322_get_capabilities(const struct device *dev, struct display_capabilities *caps)
 {
 	const struct ssd1322_config *config = dev->config;
 
@@ -175,13 +195,32 @@ static int ssd1322_init_device(const struct device *dev)
 		return ret;
 	}
 
-	data[0] = 0x3F;
+	data[0] = config->mux_ratio - 1;
 	ret = ssd1322_write_command(dev, SSD1322_SET_MUX_RATIO, data, 1);
 	if (ret < 0) {
 		return ret;
 	}
 
-	data[0] = 0x14; data[1] = 0x11;
+	data[0] = config->start_line;
+	ret = ssd1322_write_command(dev, SSD1322_SET_START_LINE, data, 1);
+	if (ret < 0) {
+		return ret;
+	}
+
+	data[0] = config->row_offset;
+	ret = ssd1322_write_command(dev, SSD1322_SET_DISPLAY_OFFSET, data, 1);
+	if (ret < 0) {
+		return ret;
+	}
+
+	data[0] = 0x00;
+	data[1] = 0x01;
+	WRITE_BIT(data[0], 0, config->remap_row_first);
+	WRITE_BIT(data[0], 1, config->remap_columns);
+	WRITE_BIT(data[0], 2, config->remap_nibble);
+	WRITE_BIT(data[0], 4, config->remap_rows);
+	WRITE_BIT(data[0], 5, config->remap_com_odd_even_split);
+	WRITE_BIT(data[1], 4, config->remap_com_dual);
 	ret = ssd1322_write_command(dev, SSD1322_SET_REMAP, data, 2);
 	if (ret < 0) {
 		return ret;
@@ -267,20 +306,28 @@ static struct display_driver_api ssd1322_driver_api = {
 	.get_capabilities = ssd1322_get_capabilities,
 };
 
-#define SSD1322_DEFINE(node_id)								\
-	static const struct ssd1322_config config##node_id = {				\
-		.height = DT_PROP(node_id, height),					\
-		.width = DT_PROP(node_id, width),					\
-		.column_offset = DT_PROP(node_id, column_offset),			\
-		.mipi_dev = DEVICE_DT_GET(DT_PARENT(node_id)),\
-		.dbi_config = {								\
-			.mode = MIPI_DBI_MODE_SPI_4WIRE,				\
-			.config = MIPI_DBI_SPI_CONFIG_DT(				\
-				node_id, SPI_OP_MODE_MASTER | SPI_WORD_SET(8), 0)	\
-		},									\
-	};										\
-											\
-	DEVICE_DT_DEFINE(node_id, ssd1322_init, NULL, NULL, &config##node_id,		\
-			POST_KERNEL, CONFIG_DISPLAY_INIT_PRIORITY, &ssd1322_driver_api);
+#define SSD1322_DEFINE(node_id)                                                                    \
+	static const struct ssd1322_config config##node_id = {                                     \
+		.height = DT_PROP(node_id, height),                                                \
+		.width = DT_PROP(node_id, width),                                                  \
+		.column_offset = DT_PROP(node_id, column_offset),                                  \
+		.row_offset = DT_PROP(node_id, row_offset),                                        \
+		.start_line = DT_PROP(node_id, start_line),                                        \
+		.mux_ratio = DT_PROP(node_id, mux_ratio),                                          \
+		.remap_row_first = DT_PROP(node_id, remap_row_first),                              \
+		.remap_columns = DT_PROP(node_id, remap_columns),                                  \
+		.remap_rows = DT_PROP(node_id, remap_rows),                                        \
+		.remap_nibble = DT_PROP(node_id, remap_nibble),                                    \
+		.remap_com_odd_even_split = DT_PROP(node_id, remap_com_odd_even_split),            \
+		.remap_com_dual = DT_PROP(node_id, remap_com_dual),                                \
+		.segments_per_pixel = DT_PROP(node_id, segments_per_pixel),                        \
+		.mipi_dev = DEVICE_DT_GET(DT_PARENT(node_id)),                                     \
+		.dbi_config = {.mode = MIPI_DBI_MODE_SPI_4WIRE,                                    \
+			       .config = MIPI_DBI_SPI_CONFIG_DT(                                   \
+				       node_id, SPI_OP_MODE_MASTER | SPI_WORD_SET(8), 0)},         \
+	};                                                                                         \
+                                                                                                   \
+	DEVICE_DT_DEFINE(node_id, ssd1322_init, NULL, NULL, &config##node_id, POST_KERNEL,         \
+			 CONFIG_DISPLAY_INIT_PRIORITY, &ssd1322_driver_api);
 
 DT_FOREACH_STATUS_OKAY(solomon_ssd1322, SSD1322_DEFINE)
