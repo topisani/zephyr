@@ -30,6 +30,12 @@ config STM32_BACKUP_SRAM
 	help
 	  Enable support for STM32 backup SRAM.
 
+config STM32_BACKUP_SRAM_INIT_PRIORITY
+	int  "STM32 Backup SRAM initialization priority"
+	default 90
+	help
+	  STM32 Backup SRAM Initialization priority.
+
 config STM32_ENABLE_DEBUG_SLEEP_STOP
 	bool "Allow debugger attach in stop/sleep Mode"
 	help
