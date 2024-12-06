@@ -266,11 +266,11 @@ static void priv_handle_msg_data_out(struct udc_stm32_data *priv, uint8_t epnum,
 	uint8_t ep = epnum | USB_EP_DIR_OUT;
 	struct net_buf *buf;
 
-	LOG_DBG("DataOut ep 0x%02x", ep);
-
 	udc_ep_set_busy(dev, ep, false);
 
 	buf = udc_buf_get(dev, ep);
+	LOG_DBG("DataOut ep 0x%02x, buf %p", ep, buf);
+
 	if (unlikely(buf == NULL)) {
 		LOG_ERR("ep 0x%02x queue is empty", ep);
 		return;
@@ -305,11 +305,11 @@ static void priv_handle_msg_data_in(struct udc_stm32_data *priv, uint8_t epnum)
 	uint8_t ep = epnum | USB_EP_DIR_IN;
 	struct net_buf *buf;
 
-	LOG_DBG("DataIn ep 0x%02x", ep);
-
 	udc_ep_set_busy(dev, ep, false);
 
 	buf = udc_buf_peek(dev, ep);
+
+	LOG_DBG("DataIn ep 0x%02x, buf %p", ep, buf);
 	if (unlikely(buf == NULL)) {
 		return;
 	}
@@ -1162,6 +1162,13 @@ static int udc_stm32_driver_init0(const struct device *dev)
 	struct udc_data *data = dev->data;
 	int err;
 
+	data->caps.rwup = true;
+	data->caps.out_ack = false;
+	data->caps.mps0 = UDC_MPS0_64;
+	if (cfg->speed_idx == 2) {
+		data->caps.hs = true;
+	}
+
 	for (unsigned int i = 0; i < ARRAY_SIZE(ep_cfg_out); i++) {
 		ep_cfg_out[i].caps.out = 1;
 		if (i == 0) {
@@ -1171,6 +1178,7 @@ static int udc_stm32_driver_init0(const struct device *dev)
 			ep_cfg_out[i].caps.bulk = 1;
 			ep_cfg_out[i].caps.interrupt = 1;
 			ep_cfg_out[i].caps.iso = 1;
+			ep_cfg_out[i].caps.high_bandwidth = data->caps.hs;
 			ep_cfg_out[i].caps.mps = cfg->ep_mps;
 		}
 
@@ -1191,7 +1199,8 @@ static int udc_stm32_driver_init0(const struct device *dev)
 			ep_cfg_in[i].caps.bulk = 1;
 			ep_cfg_in[i].caps.interrupt = 1;
 			ep_cfg_in[i].caps.iso = 1;
-			ep_cfg_in[i].caps.mps = 1023;
+			ep_cfg_in[i].caps.high_bandwidth = data->caps.hs;
+			ep_cfg_in[i].caps.mps = cfg->ep_mps;
 		}
 
 		ep_cfg_in[i].addr = USB_EP_DIR_IN | i;
@@ -1200,13 +1209,6 @@ static int udc_stm32_driver_init0(const struct device *dev)
 			LOG_ERR("Failed to register endpoint");
 			return err;
 		}
-	}
-
-	data->caps.rwup = true;
-	data->caps.out_ack = false;
-	data->caps.mps0 = UDC_MPS0_64;
-	if (cfg->speed_idx == 2) {
-		data->caps.hs = true;
 	}
 
 	priv->dev = dev;
