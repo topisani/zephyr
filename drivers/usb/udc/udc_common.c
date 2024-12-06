@@ -662,7 +662,7 @@ struct net_buf *udc_ep_buf_alloc(const struct device *dev,
 	bi = udc_get_buf_info(buf);
 	memset(bi, 0, sizeof(struct udc_buf_info));
 	bi->ep = ep;
-	LOG_DBG("Allocate net_buf, ep 0x%02x, size %zd", ep, size);
+	LOG_DBG("Allocate net_buf, ep 0x%02x, size %zd, buf %p", ep, size, buf);
 
 ep_alloc_error:
 	api->unlock(dev);
@@ -1059,7 +1059,7 @@ void udc_ctrl_update_stage(const struct device *dev,
 				LOG_DBG("s-in-status");
 				next_stage = CTRL_PIPE_STAGE_SETUP;
 			} else {
-				LOG_WRN("ZLP expected");
+				LOG_WRN("ZLP expected: %d, %p", buf->len, buf);
 				next_stage = CTRL_PIPE_STAGE_ERROR;
 			}
 		} else {

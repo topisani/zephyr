@@ -266,11 +266,11 @@ static void priv_handle_msg_data_out(struct udc_stm32_data *priv, uint8_t epnum,
 	uint8_t ep = epnum | USB_EP_DIR_OUT;
 	struct net_buf *buf;
 
-	LOG_DBG("DataOut ep 0x%02x", ep);
-
 	udc_ep_set_busy(dev, ep, false);
 
 	buf = udc_buf_get(dev, ep);
+	LOG_DBG("DataOut ep 0x%02x, buf %p", ep, buf);
+
 	if (unlikely(buf == NULL)) {
 		LOG_ERR("ep 0x%02x queue is empty", ep);
 		return;
@@ -305,11 +305,11 @@ static void priv_handle_msg_data_in(struct udc_stm32_data *priv, uint8_t epnum)
 	uint8_t ep = epnum | USB_EP_DIR_IN;
 	struct net_buf *buf;
 
-	LOG_DBG("DataIn ep 0x%02x", ep);
-
 	udc_ep_set_busy(dev, ep, false);
 
 	buf = udc_buf_peek(dev, ep);
+
+	LOG_DBG("DataIn ep 0x%02x, buf %p", ep, buf);
 	if (unlikely(buf == NULL)) {
 		return;
 	}
