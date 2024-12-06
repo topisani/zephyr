@@ -251,6 +251,9 @@ arduino_serial: &usart6 {};
 	};
 };
 
+#define TEST_USB 2
+
+#if TESTUSB == 0
 zephyr_udc0: &usbotg_hs {
 	pinctrl-0 = <&usb_otg_hs_ulpi_ck_pa5
 			&usb_otg_hs_ulpi_d0_pa3
@@ -269,3 +272,29 @@ zephyr_udc0: &usbotg_hs {
 	phys = <&otghs_ulpi_phy>;
 	status = "okay";
 };
+#elif TEST_USB == 1
+
+&spi2 {
+	status = "disabled";
+};
+
+&usbotg_hs {
+	status = "disabled";
+};
+
+&otghs_ulpi_phy {
+	status = "disabled";
+};
+
+zephyr_udc0: &usbotg_fs {
+	pinctrl-0 = <&usb_otg_fs_dm_pa11 &usb_otg_fs_dp_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+#elif TEST_USB == 2
+zephyr_udc0: &usbotg_hs {
+	pinctrl-0 = <&usb_otg_fs_dm_pa11 &usb_otg_fs_dp_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+#endif
