@@ -112,8 +112,9 @@ static int ssd1322_convert_L_8(const struct device *dev, const uint8_t *buf, int
 
 	if (config->segments_per_pixel == 2) {
 		for (; i < config->conversion_buf_size && pixel_count > cur_offset + i; i += 1) {
-			config->conversion_buf[i] = (buf[cur_offset + i] >> 4) << 4;
-			config->conversion_buf[i] |= buf[cur_offset + i] >> 4;
+			// Data bus is big endian 16bit, so swap output bytes
+			config->conversion_buf[i ^ 1] = (buf[cur_offset + i] >> 4) << 4;
+			config->conversion_buf[i ^ 1] |= buf[cur_offset + i] >> 4;
 		}
 	} else {
 		for (; i / 2 < config->conversion_buf_size && pixel_count > cur_offset + i;
